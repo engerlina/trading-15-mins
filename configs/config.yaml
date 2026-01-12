@@ -1,0 +1,206 @@
+# Kronos Trading System Configuration
+# ====================================
+
+system:
+  name: "kronos_trading"
+  version: "0.1.0"
+  mode: "backtest"  # backtest, paper, live
+  log_level: "INFO"
+
+# Data Configuration
+data:
+  # Data sources
+  sources:
+    binance:
+      enabled: true
+      api_key: ""  # Optional - public endpoints work without auth
+      base_url: "https://fapi.binance.com"
+    hyperliquid:
+      enabled: true
+      wallet_address: ""      # HYPERLIQUID_WALLET_ADDRESS
+      api_wallet_address: ""  # HYPERLIQUID_API_WALLET_ADDRESS
+      private_key: ""         # HYPERLIQUID_PRIVATE_KEY
+      network: "mainnet"      # mainnet or testnet
+
+  # Symbols to trade
+  symbols:
+    - "BTCUSDT"
+    - "ETHUSDT"
+    - "SOLUSDT"
+
+  # Timeframes (Layer architecture)
+  timeframes:
+    regime: "4h"      # 4-hour for regime detection
+    signal: "30m"     # 30-minute for signal generation
+    execution: "5m"   # 5-minute for execution/stops
+
+  # Data storage
+  storage:
+    raw_dir: "data/raw"
+    processed_dir: "data/processed"
+    cache_dir: "data/cache"
+    format: "parquet"
+
+# Kronos Model Configuration
+kronos:
+  model_path: "Kronos/model/base/model.safetensors"
+  context_length: 512
+  device: "cuda"  # cuda, cpu, auto
+  frozen: true  # Use as frozen encoder
+  batch_size: 32
+
+  # LoRA fine-tuning (optional)
+  lora:
+    enabled: false
+    rank: 8
+    alpha: 16
+    dropout: 0.1
+
+# Feature Engineering
+features:
+  # Kronos embeddings
+  kronos_embeddings:
+    enabled: true
+    dim: 256
+
+  # Regime shift detection
+  regime_shift:
+    enabled: true
+    perplexity_threshold: 2.0
+    reconstruction_error_threshold: 0.1
+
+  # Additional features
+  technical:
+    momentum:
+      - 5
+      - 10
+      - 20
+    volatility_window: 20
+    atr_period: 14
+
+  # Forward return quantiles for distribution
+  return_quantiles:
+    - 0.1
+    - 0.25
+    - 0.5
+    - 0.75
+    - 0.9
+
+# Signal Model Configuration
+signal_model:
+  type: "xgboost"  # xgboost, lightgbm
+
+  # Target definition
+  target:
+    horizon: 6  # Number of signal bars (6 x 30m = 3 hours)
+    type: "classification"  # classification, regression
+    threshold: 0.001  # Minimum return to consider profitable (after costs)
+
+  # XGBoost parameters
+  xgboost:
+    n_estimators: 500
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_weight: 5
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+    objective: "multi:softprob"
+    num_class: 3  # long, short, flat
+    eval_metric: "mlogloss"
+    early_stopping_rounds: 50
+
+  # Training configuration
+  training:
+    train_ratio: 0.7
+    val_ratio: 0.15
+    test_ratio: 0.15
+    walk_forward:
+      enabled: true
+      train_window: 10000  # bars
+      test_window: 500     # bars
+      purge_window: 48     # bars to purge between train/test
+
+# Risk Engine Configuration
+risk:
+  # Capital and position sizing
+  initial_capital: 10000
+  max_position_size: 0.25  # Max 25% of capital per trade
+  max_leverage: 3.0
+
+  # Volatility targeting
+  volatility_target: 0.15  # 15% annualized
+  volatility_lookback: 20  # periods
+
+  # Drawdown limits
+  max_drawdown: 0.15  # 15% max drawdown
+  daily_loss_limit: 0.03  # 3% daily loss limit
+
+  # Regime-based adjustments
+  regime_sizing:
+    trend: 1.0        # Full size in trending
+    chop: 0.3         # Reduced in chop
+    high_vol: 0.5     # Reduced in high volatility
+    regime_shock: 0.0 # No trading during regime shocks
+
+  # Kill switches
+  kill_switches:
+    max_consecutive_losses: 5
+    correlation_breakdown: true
+    funding_spike: 0.01  # 1% funding rate
+
+# Execution Configuration
+execution:
+  exchange: "hyperliquid"
+  order_type: "limit"  # limit, market
+  slippage_model: "fixed"  # fixed, percentage
+  slippage_bps: 5  # 5 basis points
+
+  # Fees
+  fees:
+    maker: 0.0002  # 2 bps
+    taker: 0.0005  # 5 bps
+
+  # Funding simulation
+  funding:
+    enabled: true
+    frequency: "8h"  # Funding every 8 hours
+
+# Backtesting Configuration
+backtest:
+  start_date: "2023-01-01"
+  end_date: "2024-12-31"
+
+  # Walk-forward validation
+  walk_forward:
+    enabled: true
+    train_periods: 180  # days
+    test_periods: 30    # days
+    step_size: 30       # days
+
+  # Metrics to calculate
+  metrics:
+    - "cagr"
+    - "sharpe"
+    - "sortino"
+    - "max_drawdown"
+    - "calmar"
+    - "profit_factor"
+    - "win_rate"
+    - "exposure"
+
+  # Monte Carlo simulation
+  monte_carlo:
+    enabled: true
+    n_simulations: 1000
+    confidence_level: 0.95
+
+# Logging Configuration
+logging:
+  dir: "logs"
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_rotation:
+    max_bytes: 10485760  # 10MB
+    backup_count: 5

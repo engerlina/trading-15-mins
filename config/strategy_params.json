@@ -1,0 +1,119 @@
+{
+  "strategy_name": "Momentum Long-Only Trend Following",
+  "version": "1.0.0",
+  "created": "2026-01-11",
+  "description": "Long-only momentum strategy with crash protection for crypto perpetual futures",
+
+  "backtest_config": {
+    "initial_capital": 10000.0,
+    "fee_rate": 0.0005,
+    "slippage_bps": 5,
+    "stop_loss_pct": 0.99,
+    "take_profit_pct": 5.00,
+    "leverage": 2.0,
+    "max_leverage": 3.0,
+    "trailing_stop_pct": 0.22,
+    "min_holding_bars": 96,
+    "max_holding_bars": 99999,
+    "confidence_threshold": 0.10
+  },
+
+  "risk_engine_config": {
+    "max_position_size_multiplier": 0.95,
+    "volatility_target": 0.80,
+    "max_drawdown": 0.85,
+    "max_consecutive_losses": 500,
+    "daily_loss_limit": 0.99
+  },
+
+  "trend_detection": {
+    "ma_trend_period": 200,
+    "crash_threshold": 0.55,
+    "warmup_bars": 200
+  },
+
+  "position_sizing": {
+    "regime_multipliers": {
+      "strong_trend": 1.5,
+      "moderate_trend": 1.2,
+      "weak_trend": 1.0,
+      "uncertain": 0.8
+    },
+    "regime_thresholds": {
+      "strong": 0.8,
+      "moderate": 0.5,
+      "weak": 0.3
+    },
+    "max_leverage_cap": 1.5
+  },
+
+  "signal_logic": {
+    "crash_detection": {
+      "condition": "drawdown_from_ath > crash_threshold AND price < ma_trend",
+      "action": "FLAT"
+    },
+    "recovery_detection": {
+      "condition": "was_flat AND price > ma_trend",
+      "action": "LONG"
+    },
+    "default": {
+      "condition": "all other cases",
+      "action": "LONG"
+    }
+  },
+
+  "exit_rules": {
+    "trailing_stop": {
+      "enabled": true,
+      "threshold": 0.22,
+      "description": "Exit when price drops 22% from best price since entry"
+    },
+    "signal_flat": {
+      "enabled": true,
+      "min_holding_required": true,
+      "description": "Exit when crash detected (after min holding period)"
+    },
+    "stop_loss": {
+      "enabled": false,
+      "threshold": 0.99,
+      "description": "Effectively disabled"
+    },
+    "take_profit": {
+      "enabled": false,
+      "threshold": 5.00,
+      "description": "Effectively disabled"
+    }
+  },
+
+  "performance_results": {
+    "test_period": "2023-01-01 to 2024-12-31",
+    "results": {
+      "BTCUSDT": {
+        "strategy_return": "630.88%",
+        "benchmark_return": "459.60%",
+        "alpha": "+171.29%",
+        "beats_benchmark": true
+      },
+      "ETHUSDT": {
+        "strategy_return": "48.11%",
+        "benchmark_return": "47.16%",
+        "alpha": "+0.95%",
+        "beats_benchmark": true
+      },
+      "SOLUSDT": {
+        "strategy_return": "84.44%",
+        "benchmark_return": "89.77%",
+        "alpha": "-5.33%",
+        "beats_benchmark": false
+      }
+    }
+  },
+
+  "notes": [
+    "Strategy is optimized for bull market conditions",
+    "Starting at market peaks with leverage is risky",
+    "22% trailing stop is a compromise across all assets",
+    "55% crash threshold avoids false triggers during normal corrections",
+    "96-bar (2 day) minimum hold prevents whipsaws"
+  ]
+}

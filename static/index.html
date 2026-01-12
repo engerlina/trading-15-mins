@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kronos Trading Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+        .status-idle { background-color: #6b7280; }
+        .status-scanning { background-color: #3b82f6; animation: pulse 2s infinite; }
+        .status-in_position { background-color: #10b981; }
+        .status-cooldown { background-color: #f59e0b; }
+        .status-error { background-color: #ef4444; }
+        .status-stopping { background-color: #f59e0b; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .pnl-positive { color: #10b981; }
+        .pnl-negative { color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-3xl font-bold">Kronos Trading</h1>
+                <p class="text-gray-400">RSI Divergence Strategy</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <span id="connection-status" class="text-sm text-gray-400">Connecting...</span>
+                <span id="last-update" class="text-sm text-gray-500"></span>
+            </div>
+        </header>
+
+        <!-- Status Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <!-- State Card -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <div class="flex items-center justify-between">
+                    <span class="text-gray-400 text-sm">State</span>
+                    <span id="state-dot" class="status-dot status-idle"></span>
+                </div>
+                <p id="state-text" class="text-2xl font-bold mt-2">IDLE</p>
+            </div>
+
+            <!-- Balance Card -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <span class="text-gray-400 text-sm">Balance</span>
+                <p id="balance" class="text-2xl font-bold mt-2">$0.00</p>
+            </div>
+
+            <!-- Daily PnL Card -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <span class="text-gray-400 text-sm">Daily PnL</span>
+                <p id="daily-pnl" class="text-2xl font-bold mt-2">$0.00</p>
+            </div>
+
+            <!-- Trades Today Card -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <span class="text-gray-400 text-sm">Trades Today</span>
+                <p id="trades-today" class="text-2xl font-bold mt-2">0</p>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left Column: Controls & Position -->
+            <div class="space-y-4">
+                <!-- Control Panel -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h2 class="text-lg font-semibold mb-4">Controls</h2>
+                    <div class="flex gap-2">
+                        <button id="btn-start" onclick="startTrading()"
+                            class="flex-1 bg-green-600 hover:bg-green-700 px-4 py-2 rounded font-medium transition">
+                            Start
+                        </button>
+                        <button id="btn-stop" onclick="stopTrading()"
+                            class="flex-1 bg-red-600 hover:bg-red-700 px-4 py-2 rounded font-medium transition">
+                            Stop
+                        </button>
+                    </div>
+                    <button id="btn-close-position" onclick="closePosition()"
+                        class="w-full mt-2 bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded font-medium transition hidden">
+                        Close Position
+                    </button>
+                </div>
+
+                <!-- Current Position -->
+                <div id="position-card" class="bg-gray-800 rounded-lg p-4 hidden">
+                    <h2 class="text-lg font-semibold mb-4">Current Position</h2>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Symbol</span>
+                            <span id="pos-symbol" class="font-medium">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Side</span>
+                            <span id="pos-side" class="font-medium">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Entry Price</span>
+                            <span id="pos-entry" class="font-medium">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Size</span>
+                            <span id="pos-size" class="font-medium">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Unrealized PnL</span>
+                            <span id="pos-pnl" class="font-medium">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h2 class="text-lg font-semibold mb-4">Configuration</h2>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Symbol</span>
+                            <span id="cfg-symbol" class="font-medium">BTC</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Timeframe</span>
+                            <span id="cfg-timeframe" class="font-medium">15m</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Risk per Trade</span>
+                            <span id="cfg-risk" class="font-medium">2%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Max Leverage</span>
+                            <span id="cfg-leverage" class="font-medium">2x</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Network</span>
+                            <span id="cfg-network" class="font-medium">mainnet</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle Column: Equity Chart -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-lg font-semibold mb-4">Equity Curve</h2>
+                <div class="h-64">
+                    <canvas id="equity-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Right Column: Trade History -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-lg font-semibold mb-4">Recent Trades</h2>
+                <div id="trades-list" class="space-y-2 max-h-96 overflow-y-auto">
+                    <p class="text-gray-500 text-sm">No trades yet</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Signals Log -->
+        <div class="mt-8 bg-gray-800 rounded-lg p-4">
+            <h2 class="text-lg font-semibold mb-4">Signals Log</h2>
+            <div id="signals-log" class="space-y-2 max-h-48 overflow-y-auto text-sm">
+                <p class="text-gray-500">Waiting for signals...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket connection
+        let ws = null;
+        let equityChart = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
+            initEquityChart();
+            fetchInitialData();
+        });
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                document.getElementById('connection-status').textContent = 'Connected';
+                document.getElementById('connection-status').classList.remove('text-red-400');
+                document.getElementById('connection-status').classList.add('text-green-400');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('connection-status').textContent = 'Disconnected';
+                document.getElementById('connection-status').classList.remove('text-green-400');
+                document.getElementById('connection-status').classList.add('text-red-400');
+                // Reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            // Ping to keep alive
+            setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send('ping');
+                }
+            }, 30000);
+        }
+
+        function handleMessage(message) {
+            document.getElementById('last-update').textContent =
+                'Updated: ' + new Date().toLocaleTimeString();
+
+            switch (message.type) {
+                case 'initial_state':
+                case 'state_update':
+                    updateStatus(message.data);
+                    break;
+                case 'trade':
+                    addTradeToList(message.data);
+                    break;
+                case 'signal':
+                    addSignalToLog(message.data);
+                    break;
+                case 'price':
+                    // Update current price display if needed
+                    break;
+            }
+        }
+
+        function updateStatus(status) {
+            // Update state
+            const state = status.state || 'IDLE';
+            document.getElementById('state-text').textContent = state;
+            const stateDot = document.getElementById('state-dot');
+            stateDot.className = 'status-dot status-' + state.toLowerCase();
+
+            // Update context
+            if (status.context) {
+                const ctx = status.context;
+                document.getElementById('daily-pnl').textContent =
+                    '$' + (ctx.daily_pnl || 0).toFixed(2);
+                document.getElementById('daily-pnl').className =
+                    'text-2xl font-bold mt-2 ' + (ctx.daily_pnl >= 0 ? 'pnl-positive' : 'pnl-negative');
+                document.getElementById('trades-today').textContent = ctx.trades_today || 0;
+
+                // Position card
+                const posCard = document.getElementById('position-card');
+                const closeBtn = document.getElementById('btn-close-position');
+                if (ctx.position && ctx.position.symbol) {
+                    posCard.classList.remove('hidden');
+                    closeBtn.classList.remove('hidden');
+                    document.getElementById('pos-symbol').textContent = ctx.position.symbol;
+                    document.getElementById('pos-side').textContent = ctx.position.side?.toUpperCase() || '-';
+                    document.getElementById('pos-entry').textContent =
+                        ctx.position.entry_price ? '$' + ctx.position.entry_price.toFixed(2) : '-';
+                    document.getElementById('pos-size').textContent =
+                        ctx.position.size ? '$' + ctx.position.size.toFixed(2) : '-';
+                } else {
+                    posCard.classList.add('hidden');
+                    closeBtn.classList.add('hidden');
+                }
+            }
+
+            // Update config
+            if (status.config) {
+                document.getElementById('cfg-risk').textContent =
+                    (status.config.risk_per_trade * 100).toFixed(0) + '%';
+                document.getElementById('cfg-leverage').textContent =
+                    status.config.max_leverage + 'x';
+                document.getElementById('cfg-network').textContent = status.config.network;
+            }
+
+            document.getElementById('cfg-symbol').textContent = status.symbol || 'BTC';
+            document.getElementById('cfg-timeframe').textContent = status.timeframe || '15m';
+
+            // Update button states
+            updateButtonStates(status.running);
+        }
+
+        function updateButtonStates(running) {
+            const startBtn = document.getElementById('btn-start');
+            const stopBtn = document.getElementById('btn-stop');
+
+            if (running) {
+                startBtn.disabled = true;
+                startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                stopBtn.disabled = false;
+                stopBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                startBtn.disabled = false;
+                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                stopBtn.disabled = true;
+                stopBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        function addTradeToList(trade) {
+            const list = document.getElementById('trades-list');
+            const pnlClass = trade.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+            const html = `
+                <div class="bg-gray-700 rounded p-2">
+                    <div class="flex justify-between">
+                        <span class="font-medium">${trade.side?.toUpperCase()} ${trade.symbol}</span>
+                        <span class="${pnlClass}">$${(trade.pnl || 0).toFixed(2)}</span>
+                    </div>
+                    <div class="text-xs text-gray-400 mt-1">
+                        ${trade.type === 'entry' ? 'Opened' : 'Closed'} @ $${trade.price?.toFixed(2)}
+                    </div>
+                </div>
+            `;
+            list.insertAdjacentHTML('afterbegin', html);
+        }
+
+        function addSignalToLog(signal) {
+            const log = document.getElementById('signals-log');
+            const html = `
+                <div class="text-gray-300">
+                    <span class="text-blue-400">[${new Date(signal.timestamp).toLocaleTimeString()}]</span>
+                    ${signal.type} - ${signal.symbol} @ $${signal.price?.toFixed(2)} (RSI: ${signal.rsi?.toFixed(1)})
+                </div>
+            `;
+            log.insertAdjacentHTML('afterbegin', html);
+        }
+
+        function initEquityChart() {
+            const ctx = document.getElementById('equity-chart').getContext('2d');
+            equityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Equity',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#9ca3af' }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function fetchInitialData() {
+            try {
+                // Fetch status
+                const statusRes = await fetch('/status');
+                if (statusRes.ok) {
+                    const status = await statusRes.json();
+                    updateStatus(status);
+                }
+
+                // Fetch balance
+                const balanceRes = await fetch('/status/balance');
+                if (balanceRes.ok) {
+                    const balance = await balanceRes.json();
+                    document.getElementById('balance').textContent =
+                        '$' + (balance.balance || 0).toFixed(2);
+                }
+
+                // Fetch trades
+                const tradesRes = await fetch('/trades?limit=10');
+                if (tradesRes.ok) {
+                    const trades = await tradesRes.json();
+                    const list = document.getElementById('trades-list');
+                    if (trades.length > 0) {
+                        list.innerHTML = '';
+                        trades.forEach(trade => {
+                            const pnlClass = (trade.pnl || 0) >= 0 ? 'pnl-positive' : 'pnl-negative';
+                            list.innerHTML += `
+                                <div class="bg-gray-700 rounded p-2">
+                                    <div class="flex justify-between">
+                                        <span class="font-medium">${trade.side?.toUpperCase()} ${trade.symbol}</span>
+                                        <span class="${pnlClass}">$${(trade.pnl || 0).toFixed(2)}</span>
+                                    </div>
+                                    <div class="text-xs text-gray-400 mt-1">
+                                        ${trade.exit_reason || trade.status}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                }
+
+                // Fetch equity curve
+                const equityRes = await fetch('/status/equity?hours=24');
+                if (equityRes.ok) {
+                    const equity = await equityRes.json();
+                    if (equity.length > 0) {
+                        equityChart.data.labels = equity.map(e =>
+                            new Date(e.timestamp).toLocaleTimeString());
+                        equityChart.data.datasets[0].data = equity.map(e => e.equity);
+                        equityChart.update();
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching initial data:', error);
+            }
+        }
+
+        async function startTrading() {
+            try {
+                const res = await fetch('/control/start', { method: 'POST' });
+                const data = await res.json();
+                if (!data.success) {
+                    alert(data.message);
+                }
+            } catch (error) {
+                alert('Failed to start trading: ' + error.message);
+            }
+        }
+
+        async function stopTrading() {
+            try {
+                const res = await fetch('/control/stop', { method: 'POST' });
+                const data = await res.json();
+                if (!data.success) {
+                    alert(data.message);
+                }
+            } catch (error) {
+                alert('Failed to stop trading: ' + error.message);
+            }
+        }
+
+        async function closePosition() {
+            if (!confirm('Are you sure you want to close the current position?')) return;
+            try {
+                const res = await fetch('/control/close-position', { method: 'POST' });
+                const data = await res.json();
+                if (!data.success) {
+                    alert(data.message);
+                }
+            } catch (error) {
+                alert('Failed to close position: ' + error.message);
+            }
+        }
+
+        // Refresh data periodically
+        setInterval(async () => {
+            try {
+                const balanceRes = await fetch('/status/balance');
+                if (balanceRes.ok) {
+                    const balance = await balanceRes.json();
+                    document.getElementById('balance').textContent =
+                        '$' + (balance.balance || 0).toFixed(2);
+                }
+            } catch (e) {}
+        }, 30000);
+    </script>
+</body>
+</html>

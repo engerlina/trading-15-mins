@@ -1,0 +1,51 @@
+# Docker ignore file
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data and logs
+data/
+logs/
+*.log
+*.parquet
+
+# Models (large files)
+models/
+Kronos/
+
+# Notebooks
+notebooks/
+*.ipynb
+
+# Test and development
+tests/
+*.test.py
+.pytest_cache/
+.coverage
+
+# Environment
+.env
+.env.local
+*.env
+
+# Misc
+*.md
+!README.md
+results/

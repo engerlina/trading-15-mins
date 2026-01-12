@@ -1,0 +1,30 @@
+# Kronos Trading System - Production Dependencies
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+websockets>=12.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Database
+sqlalchemy>=2.0.25
+asyncpg>=0.29.0
+alembic>=1.13.0
+
+# Async HTTP
+aiohttp>=3.9.0
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Ethereum/Crypto
+eth-account>=0.11.0
+
+# Configuration
+pyyaml>=6.0.0
+python-dotenv>=1.0.0
+
+# Logging
+structlog>=24.1.0

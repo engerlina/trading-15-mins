@@ -1,0 +1,40 @@
+# AWS App Runner Configuration
+# Documentation: https://docs.aws.amazon.com/apprunner/latest/dg/config-file.html
+
+version: 1.0
+runtime: python311
+
+build:
+  commands:
+    build:
+      - pip install -r requirements-prod.txt
+
+run:
+  command: python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8080
+  network:
+    port: 8080
+    env: PORT
+  env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: TRADING_SYMBOL
+      value: "BTC"
+    - name: TRADING_TIMEFRAME
+      value: "15m"
+    - name: RISK_PER_TRADE
+      value: "0.02"
+    - name: MAX_LEVERAGE
+      value: "2.0"
+    - name: COOLDOWN_MINUTES
+      value: "30"
+    - name: AUTO_START_TRADING
+      value: "false"
+  # Secrets should be configured in AWS App Runner console
+  # pointing to AWS Secrets Manager:
+  # - DATABASE_URL
+  # - HYPERLIQUID_WALLET_ADDRESS
+  # - HYPERLIQUID_API_WALLET_ADDRESS
+  # - HYPERLIQUID_PRIVATE_KEY
+  # - HYPERLIQUID_NETWORK

@@ -1,0 +1,67 @@
+# Kronos Trading System - Local Development
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kronos-trading
+    ports:
+      - "8080:8080"
+    environment:
+      # Database
+      - DATABASE_URL=postgresql+asyncpg://kronos:kronos@db:5432/kronos_trading
+
+      # Hyperliquid credentials (from .env file)
+      - HYPERLIQUID_WALLET_ADDRESS=${HYPERLIQUID_WALLET_ADDRESS}
+      - HYPERLIQUID_API_WALLET_ADDRESS=${HYPERLIQUID_API_WALLET_ADDRESS}
+      - HYPERLIQUID_PRIVATE_KEY=${HYPERLIQUID_PRIVATE_KEY}
+      - HYPERLIQUID_NETWORK=${HYPERLIQUID_NETWORK:-testnet}
+
+      # Trading config
+      - TRADING_SYMBOL=${TRADING_SYMBOL:-BTC}
+      - TRADING_TIMEFRAME=${TRADING_TIMEFRAME:-15m}
+      - RISK_PER_TRADE=${RISK_PER_TRADE:-0.02}
+      - MAX_LEVERAGE=${MAX_LEVERAGE:-2.0}
+      - COOLDOWN_MINUTES=${COOLDOWN_MINUTES:-30}
+
+      # App config
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - AUTO_START_TRADING=${AUTO_START_TRADING:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: postgres:15-alpine
+    container_name: kronos-db
+    environment:
+      - POSTGRES_USER=kronos
+      - POSTGRES_PASSWORD=kronos
+      - POSTGRES_DB=kronos_trading
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kronos -d kronos_trading"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    driver: local
