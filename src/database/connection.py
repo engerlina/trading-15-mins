@@ -23,13 +23,13 @@ def get_database_url() -> str:
     url = os.getenv("DATABASE_URL")
     if not url:
         # Default for local development
-        url = "postgresql+asyncpg://kronos:kronos@localhost:5432/kronos_trading"
+        url = "postgresql+psycopg://kronos:kronos@localhost:5432/kronos_trading"
 
-    # Convert postgres:// to postgresql+asyncpg:// if needed
+    # Convert postgres:// to postgresql+psycopg:// if needed
     if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-    elif url.startswith("postgresql://") and "+asyncpg" not in url:
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        url = url.replace("postgres://", "postgresql+psycopg://", 1)
+    elif url.startswith("postgresql://") and "+psycopg" not in url:
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
 
     return url
 

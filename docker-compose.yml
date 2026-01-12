@@ -13,7 +13,7 @@ services:
       - "8080:8080"
     environment:
       # Database
-      - DATABASE_URL=postgresql+asyncpg://kronos:kronos@db:5432/kronos_trading
+      - DATABASE_URL=postgresql+psycopg://kronos:kronos@db:5432/kronos_trading
 
       # Hyperliquid credentials (from .env file)
       - HYPERLIQUID_WALLET_ADDRESS=${HYPERLIQUID_WALLET_ADDRESS}
