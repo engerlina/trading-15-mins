@@ -152,6 +152,31 @@ async def get_balance() -> dict:
         raise HTTPException(status_code=500, detail=f"Error fetching balance: {e}")
 
 
+def truncate_address(address: str) -> str:
+    """Truncate wallet address to show first 4 and last 4 characters."""
+    if not address or len(address) < 10:
+        return address or "Not configured"
+    return f"{address[:6]}...{address[-4:]}"
+
+
+@router.get("/wallet")
+async def get_wallet_info() -> dict:
+    """Get truncated wallet addresses for display."""
+    from ..main import get_trading_engine
+
+    engine = get_trading_engine()
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Trading engine not initialized")
+
+    executor = engine.executor
+    return {
+        "main_wallet": truncate_address(getattr(executor, 'wallet_address', None)),
+        "api_wallet": truncate_address(getattr(executor, 'api_wallet_address', None)),
+        "network": getattr(executor, 'network', 'unknown'),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
 @router.get("/positions")
 async def get_positions() -> dict:
     """Get current positions from exchange."""

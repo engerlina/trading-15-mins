@@ -33,6 +33,22 @@
             </div>
         </header>
 
+        <!-- Wallet Info Bar -->
+        <div class="bg-gray-800 rounded-lg p-3 mb-6 flex flex-wrap items-center gap-4 text-sm">
+            <div class="flex items-center gap-2">
+                <span class="text-gray-400">Network:</span>
+                <span id="wallet-network" class="font-mono text-blue-400">-</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-gray-400">Main Wallet:</span>
+                <span id="wallet-main" class="font-mono text-green-400">-</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-gray-400">API Wallet:</span>
+                <span id="wallet-api" class="font-mono text-yellow-400">-</span>
+            </div>
+        </div>
+
         <!-- Status Cards -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             <!-- State Card -->
@@ -377,6 +393,15 @@
                     const balance = await balanceRes.json();
                     document.getElementById('balance').textContent =
                         '$' + (balance.balance || 0).toFixed(2);
+                }
+
+                // Fetch wallet info
+                const walletRes = await fetch('/status/wallet');
+                if (walletRes.ok) {
+                    const wallet = await walletRes.json();
+                    document.getElementById('wallet-network').textContent = wallet.network || '-';
+                    document.getElementById('wallet-main').textContent = wallet.main_wallet || '-';
+                    document.getElementById('wallet-api').textContent = wallet.api_wallet || '-';
                 }
 
                 // Fetch trades
