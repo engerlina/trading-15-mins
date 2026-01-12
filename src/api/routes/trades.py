@@ -2,10 +2,12 @@
 
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/trades", tags=["trades"])
+from ..main import verify_credentials
+
+router = APIRouter(prefix="/trades", tags=["trades"], dependencies=[Depends(verify_credentials)])
 
 
 class TradeResponse(BaseModel):

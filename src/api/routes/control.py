@@ -2,10 +2,12 @@
 
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/control", tags=["control"])
+from ..main import verify_credentials
+
+router = APIRouter(prefix="/control", tags=["control"], dependencies=[Depends(verify_credentials)])
 
 
 class StartRequest(BaseModel):

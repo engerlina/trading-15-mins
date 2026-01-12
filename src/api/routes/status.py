@@ -5,7 +5,9 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/status", tags=["status"])
+from ..main import verify_credentials
+
+router = APIRouter(prefix="/status", tags=["status"], dependencies=[Depends(verify_credentials)])
 
 
 class PositionInfo(BaseModel):

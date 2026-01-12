@@ -2,13 +2,15 @@
 
 import os
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from .routes import health_router, status_router, trades_router, control_router
 from .websocket import ws_manager
@@ -21,6 +23,25 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# HTTP Basic Auth setup
+security = HTTPBasic()
+DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "admin")
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "kronos2024")
+
+
+def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)) -> str:
+    """Verify HTTP Basic Auth credentials."""
+    correct_username = secrets.compare_digest(credentials.username, DASHBOARD_USERNAME)
+    correct_password = secrets.compare_digest(credentials.password, DASHBOARD_PASSWORD)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
 
 # Global trading engine instance
 _trading_engine: Optional[TradingEngine] = None
@@ -111,8 +132,8 @@ if os.path.exists(static_path):
 
 
 @app.get("/")
-async def root():
-    """Serve the dashboard."""
+async def root(username: str = Depends(verify_credentials)):
+    """Serve the dashboard (requires authentication)."""
     index_path = os.path.join(static_path, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
