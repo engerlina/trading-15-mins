@@ -5,7 +5,7 @@ For live trading execution on Hyperliquid exchange.
 """
 
 import asyncio
-import aiohttp
+import httpx
 import hmac
 import hashlib
 import json
@@ -64,7 +64,7 @@ class HyperliquidExecutor:
         else:
             self.base_url = "https://api.hyperliquid.xyz"
 
-        self.session: Optional[aiohttp.ClientSession] = None
+        self._client: Optional[httpx.AsyncClient] = None
         self.account = None
 
         # Initialize signing account if private key provided
@@ -77,20 +77,21 @@ class HyperliquidExecutor:
             except Exception as e:
                 logger.warning(f"Could not initialize signing account: {e}")
 
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        return self.session
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create httpx client."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=30.0)
+        return self._client
 
     async def close(self):
-        """Close the session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
+        """Close the client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
 
     async def get_account_info(self) -> Optional[Dict]:
         """Get account information."""
-        session = await self._get_session()
+        client = await self._get_client()
 
         payload = {
             "type": "clearinghouseState",
@@ -98,16 +99,12 @@ class HyperliquidExecutor:
         }
 
         try:
-            async with session.post(
-                f"{self.base_url}/info",
-                json=payload
-            ) as response:
-                if response.status != 200:
-                    logger.error(f"Failed to get account info: {await response.text()}")
-                    return None
+            response = await client.post(f"{self.base_url}/info", json=payload)
+            if response.status_code != 200:
+                logger.error(f"Failed to get account info: {response.text}")
+                return None
 
-                data = await response.json()
-                return data
+            return response.json()
 
         except Exception as e:
             logger.error(f"Error getting account info: {e}")
@@ -168,11 +165,11 @@ class HyperliquidExecutor:
         Returns:
             Order response or None on failure
         """
-        if not self.api_key or not self.api_secret:
-            logger.error("API credentials not configured")
+        if not self.private_key:
+            logger.error("Private key not configured")
             return None
 
-        session = await self._get_session()
+        client = await self._get_client()
 
         # Build order payload
         is_buy = side.lower() == "buy"
@@ -200,23 +197,19 @@ class HyperliquidExecutor:
         payload["signature"] = self._sign_request(payload)
 
         try:
-            async with session.post(
-                f"{self.base_url}/exchange",
-                json=payload
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Order failed: {error_text}")
-                    return None
-
-                data = await response.json()
-
-                if data.get("status") == "ok":
-                    logger.info(f"Order placed: {side} {size} {symbol} @ {price or 'market'}")
-                    return data
-
-                logger.error(f"Order rejected: {data}")
+            response = await client.post(f"{self.base_url}/exchange", json=payload)
+            if response.status_code != 200:
+                logger.error(f"Order failed: {response.text}")
                 return None
+
+            data = response.json()
+
+            if data.get("status") == "ok":
+                logger.info(f"Order placed: {side} {size} {symbol} @ {price or 'market'}")
+                return data
+
+            logger.error(f"Order rejected: {data}")
+            return None
 
         except Exception as e:
             logger.error(f"Error placing order: {e}")
@@ -224,7 +217,7 @@ class HyperliquidExecutor:
 
     async def cancel_order(self, symbol: str, order_id: str) -> bool:
         """Cancel an order."""
-        session = await self._get_session()
+        client = await self._get_client()
 
         payload = {
             "action": {
@@ -241,14 +234,11 @@ class HyperliquidExecutor:
         payload["signature"] = self._sign_request(payload)
 
         try:
-            async with session.post(
-                f"{self.base_url}/exchange",
-                json=payload
-            ) as response:
-                if response.status == 200:
-                    logger.info(f"Order cancelled: {order_id}")
-                    return True
-                return False
+            response = await client.post(f"{self.base_url}/exchange", json=payload)
+            if response.status_code == 200:
+                logger.info(f"Order cancelled: {order_id}")
+                return True
+            return False
 
         except Exception as e:
             logger.error(f"Error cancelling order: {e}")
@@ -256,7 +246,7 @@ class HyperliquidExecutor:
 
     async def cancel_all_orders(self, symbol: Optional[str] = None) -> bool:
         """Cancel all open orders."""
-        session = await self._get_session()
+        client = await self._get_client()
 
         payload = {
             "action": {
@@ -275,11 +265,8 @@ class HyperliquidExecutor:
         payload["signature"] = self._sign_request(payload)
 
         try:
-            async with session.post(
-                f"{self.base_url}/exchange",
-                json=payload
-            ) as response:
-                return response.status == 200
+            response = await client.post(f"{self.base_url}/exchange", json=payload)
+            return response.status_code == 200
 
         except Exception as e:
             logger.error(f"Error cancelling all orders: {e}")

@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-import aiohttp
+import httpx
 import pandas as pd
 import numpy as np
 
@@ -82,19 +82,19 @@ class DataFeed:
         # Data buffer
         self._candles: List[Candle] = []
         self._last_update: Optional[datetime] = None
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._client: Optional[httpx.AsyncClient] = None
 
     async def start(self) -> None:
         """Start the data feed."""
-        self._session = aiohttp.ClientSession()
+        self._client = httpx.AsyncClient(timeout=30.0)
         await self._fetch_initial_data()
         logger.info(f"DataFeed started: {self.symbol} {self.timeframe}")
 
     async def stop(self) -> None:
         """Stop the data feed."""
-        if self._session:
-            await self._session.close()
-            self._session = None
+        if self._client:
+            await self._client.aclose()
+            self._client = None
         logger.info("DataFeed stopped")
 
     async def _fetch_initial_data(self) -> None:
@@ -124,7 +124,7 @@ class DataFeed:
         Returns:
             List of Candle objects
         """
-        if not self._session:
+        if not self._client:
             raise RuntimeError("DataFeed not started")
 
         # Hyperliquid API expects specific format
@@ -139,27 +139,26 @@ class DataFeed:
         }
 
         try:
-            async with self._session.post(self.base_url, json=payload) as response:
-                if response.status != 200:
-                    text = await response.text()
-                    logger.error(f"API error: {response.status} - {text}")
-                    return []
+            response = await self._client.post(self.base_url, json=payload)
+            if response.status_code != 200:
+                logger.error(f"API error: {response.status_code} - {response.text}")
+                return []
 
-                data = await response.json()
+            data = response.json()
 
-                candles = []
-                for c in data[-limit:]:  # Take last `limit` candles
-                    candle = Candle(
-                        timestamp=datetime.fromtimestamp(c["t"] / 1000),
-                        open=float(c["o"]),
-                        high=float(c["h"]),
-                        low=float(c["l"]),
-                        close=float(c["c"]),
-                        volume=float(c["v"]),
-                    )
-                    candles.append(candle)
+            candles = []
+            for c in data[-limit:]:  # Take last `limit` candles
+                candle = Candle(
+                    timestamp=datetime.fromtimestamp(c["t"] / 1000),
+                    open=float(c["o"]),
+                    high=float(c["h"]),
+                    low=float(c["l"]),
+                    close=float(c["c"]),
+                    volume=float(c["v"]),
+                )
+                candles.append(candle)
 
-                return candles
+            return candles
 
         except Exception as e:
             logger.error(f"Error fetching candles: {e}")

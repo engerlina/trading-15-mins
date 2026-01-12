@@ -6,7 +6,7 @@ Hyperliquid: Used for live trading and validation
 """
 
 import asyncio
-import aiohttp
+import httpx
 import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
@@ -72,25 +72,25 @@ class BinanceCollector(DataCollector):
         self.api_key = api_key
         self.api_secret = api_secret
         self.base_url = base_url
-        self.session: Optional[aiohttp.ClientSession] = None
+        self._client: Optional[httpx.AsyncClient] = None
         logger.info(f"Initialized BinanceCollector with base_url: {base_url}")
 
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
-        if self.session is None or self.session.closed:
-            timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create httpx client."""
+        if self._client is None:
             headers = {}
             if self.api_key:
                 headers["X-MBX-APIKEY"] = self.api_key
                 logger.info("Using API key for authenticated requests (higher rate limits)")
-            self.session = aiohttp.ClientSession(timeout=timeout, headers=headers)
-            logger.debug("Created new aiohttp session with 30s timeout")
-        return self.session
+            self._client = httpx.AsyncClient(timeout=30.0, headers=headers)
+            logger.debug("Created new httpx client with 30s timeout")
+        return self._client
 
     async def close(self):
-        """Close the session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
+        """Close the client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
 
     async def fetch_ohlcv(
         self,
@@ -117,7 +117,7 @@ class BinanceCollector(DataCollector):
             end_time = datetime.utcnow()
 
         interval = self.TIMEFRAME_MAP.get(timeframe, timeframe)
-        session = await self._get_session()
+        client = await self._get_client()
 
         all_data = []
         current_start = start_time
@@ -140,51 +140,50 @@ class BinanceCollector(DataCollector):
             logger.debug(f"Batch {batch_num}: Requesting {url} for {current_start.strftime('%Y-%m-%d %H:%M')}")
 
             try:
-                async with session.get(url, params=params) as response:
-                    logger.debug(f"Batch {batch_num}: Response status {response.status}")
+                response = await client.get(url, params=params)
+                logger.debug(f"Batch {batch_num}: Response status {response.status_code}")
 
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Binance API error (status {response.status}): {error_text}")
-                        break
+                if response.status_code != 200:
+                    logger.error(f"Binance API error (status {response.status_code}): {response.text}")
+                    break
 
-                    data = await response.json()
+                data = response.json()
 
-                    if not data:
-                        logger.info(f"Batch {batch_num}: No more data available")
-                        break
+                if not data:
+                    logger.info(f"Batch {batch_num}: No more data available")
+                    break
 
-                    all_data.extend(data)
+                all_data.extend(data)
 
-                    # Update start time for next batch
-                    last_timestamp = data[-1][0]
-                    new_start = datetime.utcfromtimestamp(last_timestamp / 1000) + timedelta(milliseconds=1)
+                # Update start time for next batch
+                last_timestamp = data[-1][0]
+                new_start = datetime.utcfromtimestamp(last_timestamp / 1000) + timedelta(milliseconds=1)
 
-                    # Progress logging every 10 batches
-                    if batch_num % 10 == 0:
-                        progress = min((current_start - start_time).days / max(total_days, 1) * 100, 100)
-                        logger.info(f"Batch {batch_num}: Fetched {len(data)} candles, total {len(all_data)}, progress ~{progress:.1f}%")
+                # Progress logging every 10 batches
+                if batch_num % 10 == 0:
+                    progress = min((current_start - start_time).days / max(total_days, 1) * 100, 100)
+                    logger.info(f"Batch {batch_num}: Fetched {len(data)} candles, total {len(all_data)}, progress ~{progress:.1f}%")
 
-                    # Check if we've reached the end (got fewer candles than limit, or not advancing)
-                    if len(data) < limit:
-                        logger.info(f"Batch {batch_num}: Received {len(data)} < {limit} candles, reached end of data")
-                        break
+                # Check if we've reached the end (got fewer candles than limit, or not advancing)
+                if len(data) < limit:
+                    logger.info(f"Batch {batch_num}: Received {len(data)} < {limit} candles, reached end of data")
+                    break
 
-                    # Check if timestamp is not advancing (stuck in loop)
-                    if new_start <= current_start:
-                        logger.warning(f"Batch {batch_num}: Timestamp not advancing, breaking loop")
-                        break
+                # Check if timestamp is not advancing (stuck in loop)
+                if new_start <= current_start:
+                    logger.warning(f"Batch {batch_num}: Timestamp not advancing, breaking loop")
+                    break
 
-                    current_start = new_start
+                current_start = new_start
 
-                    # Rate limiting
-                    await asyncio.sleep(0.1)
+                # Rate limiting
+                await asyncio.sleep(0.1)
 
-            except asyncio.TimeoutError:
+            except httpx.TimeoutException:
                 logger.error(f"Batch {batch_num}: Request timed out, retrying...")
                 await asyncio.sleep(1)
                 continue
-            except aiohttp.ClientError as e:
+            except httpx.RequestError as e:
                 logger.error(f"Batch {batch_num}: Network error: {e}")
                 await asyncio.sleep(1)
                 continue
@@ -239,7 +238,7 @@ class BinanceCollector(DataCollector):
         if end_time is None:
             end_time = datetime.utcnow()
 
-        session = await self._get_session()
+        client = await self._get_client()
         all_data = []
         current_start = start_time
         batch_num = 0
@@ -260,49 +259,48 @@ class BinanceCollector(DataCollector):
             logger.debug(f"Funding batch {batch_num}: Requesting for {current_start.strftime('%Y-%m-%d %H:%M')}")
 
             try:
-                async with session.get(url, params=params) as response:
-                    logger.debug(f"Funding batch {batch_num}: Response status {response.status}")
+                response = await client.get(url, params=params)
+                logger.debug(f"Funding batch {batch_num}: Response status {response.status_code}")
 
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Binance API error (status {response.status}): {error_text}")
-                        break
+                if response.status_code != 200:
+                    logger.error(f"Binance API error (status {response.status_code}): {response.text}")
+                    break
 
-                    data = await response.json()
+                data = response.json()
 
-                    if not data:
-                        logger.info(f"Funding batch {batch_num}: No more data available")
-                        break
+                if not data:
+                    logger.info(f"Funding batch {batch_num}: No more data available")
+                    break
 
-                    all_data.extend(data)
+                all_data.extend(data)
 
-                    # Update start time for next batch
-                    last_timestamp = data[-1]["fundingTime"]
-                    new_start = datetime.utcfromtimestamp(last_timestamp / 1000) + timedelta(milliseconds=1)
+                # Update start time for next batch
+                last_timestamp = data[-1]["fundingTime"]
+                new_start = datetime.utcfromtimestamp(last_timestamp / 1000) + timedelta(milliseconds=1)
 
-                    # Progress logging every 5 batches
-                    if batch_num % 5 == 0:
-                        progress = min((current_start - start_time).days / max(total_days, 1) * 100, 100)
-                        logger.info(f"Funding batch {batch_num}: Fetched {len(data)} records, total {len(all_data)}, progress ~{progress:.1f}%")
+                # Progress logging every 5 batches
+                if batch_num % 5 == 0:
+                    progress = min((current_start - start_time).days / max(total_days, 1) * 100, 100)
+                    logger.info(f"Funding batch {batch_num}: Fetched {len(data)} records, total {len(all_data)}, progress ~{progress:.1f}%")
 
-                    # Check if we've reached the end (got fewer records than limit)
-                    if len(data) < limit:
-                        logger.info(f"Funding batch {batch_num}: Received {len(data)} < {limit} records, reached end of data")
-                        break
+                # Check if we've reached the end (got fewer records than limit)
+                if len(data) < limit:
+                    logger.info(f"Funding batch {batch_num}: Received {len(data)} < {limit} records, reached end of data")
+                    break
 
-                    # Check if timestamp is not advancing (stuck in loop)
-                    if new_start <= current_start:
-                        logger.warning(f"Funding batch {batch_num}: Timestamp not advancing, breaking loop")
-                        break
+                # Check if timestamp is not advancing (stuck in loop)
+                if new_start <= current_start:
+                    logger.warning(f"Funding batch {batch_num}: Timestamp not advancing, breaking loop")
+                    break
 
-                    current_start = new_start
-                    await asyncio.sleep(0.1)
+                current_start = new_start
+                await asyncio.sleep(0.1)
 
-            except asyncio.TimeoutError:
+            except httpx.TimeoutException:
                 logger.error(f"Funding batch {batch_num}: Request timed out, retrying...")
                 await asyncio.sleep(1)
                 continue
-            except aiohttp.ClientError as e:
+            except httpx.RequestError as e:
                 logger.error(f"Funding batch {batch_num}: Network error: {e}")
                 await asyncio.sleep(1)
                 continue
@@ -336,7 +334,7 @@ class BinanceCollector(DataCollector):
         if end_time is None:
             end_time = datetime.utcnow()
 
-        session = await self._get_session()
+        client = await self._get_client()
         interval = self.TIMEFRAME_MAP.get(timeframe, timeframe)
 
         params = {
@@ -348,24 +346,24 @@ class BinanceCollector(DataCollector):
         }
 
         try:
-            async with session.get(
+            response = await client.get(
                 f"{self.base_url}/futures/data/openInterestHist",
                 params=params
-            ) as response:
-                if response.status != 200:
-                    return pd.DataFrame()
+            )
+            if response.status_code != 200:
+                return pd.DataFrame()
 
-                data = await response.json()
+            data = response.json()
 
-                if not data:
-                    return pd.DataFrame()
+            if not data:
+                return pd.DataFrame()
 
-                df = pd.DataFrame(data)
-                df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-                df["open_interest"] = df["sumOpenInterest"].astype(float)
-                df = df[["timestamp", "open_interest"]]
+            df = pd.DataFrame(data)
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df["open_interest"] = df["sumOpenInterest"].astype(float)
+            df = df[["timestamp", "open_interest"]]
 
-                return df
+            return df
 
         except Exception as e:
             logger.error(f"Error fetching open interest: {e}")
@@ -397,18 +395,19 @@ class HyperliquidCollector(DataCollector):
         self.api_key = api_key
         self.api_secret = api_secret
         self.base_url = base_url
-        self.session: Optional[aiohttp.ClientSession] = None
+        self._client: Optional[httpx.AsyncClient] = None
 
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        return self.session
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create httpx client."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=30.0)
+        return self._client
 
     async def close(self):
-        """Close the session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
+        """Close the client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
 
     async def fetch_ohlcv(
         self,
@@ -434,7 +433,7 @@ class HyperliquidCollector(DataCollector):
         if end_time is None:
             end_time = datetime.utcnow()
 
-        session = await self._get_session()
+        client = await self._get_client()
 
         # Convert symbol format (BTCUSDT -> BTC)
         asset = symbol.replace("USDT", "").replace("USD", "")
@@ -451,34 +450,30 @@ class HyperliquidCollector(DataCollector):
         }
 
         try:
-            async with session.post(
-                f"{self.base_url}/info",
-                json=payload
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Hyperliquid API error: {error_text}")
-                    return pd.DataFrame()
+            response = await client.post(f"{self.base_url}/info", json=payload)
+            if response.status_code != 200:
+                logger.error(f"Hyperliquid API error: {response.text}")
+                return pd.DataFrame()
 
-                data = await response.json()
+            data = response.json()
 
-                if not data:
-                    return pd.DataFrame()
+            if not data:
+                return pd.DataFrame()
 
-                # Parse Hyperliquid response format
-                df = pd.DataFrame(data)
-                df["timestamp"] = pd.to_datetime(df["t"], unit="ms")
-                df["open"] = df["o"].astype(float)
-                df["high"] = df["h"].astype(float)
-                df["low"] = df["l"].astype(float)
-                df["close"] = df["c"].astype(float)
-                df["volume"] = df["v"].astype(float)
+            # Parse Hyperliquid response format
+            df = pd.DataFrame(data)
+            df["timestamp"] = pd.to_datetime(df["t"], unit="ms")
+            df["open"] = df["o"].astype(float)
+            df["high"] = df["h"].astype(float)
+            df["low"] = df["l"].astype(float)
+            df["close"] = df["c"].astype(float)
+            df["volume"] = df["v"].astype(float)
 
-                df = df[["timestamp", "open", "high", "low", "close", "volume"]]
-                df = df.sort_values("timestamp").reset_index(drop=True)
+            df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+            df = df.sort_values("timestamp").reset_index(drop=True)
 
-                logger.info(f"Fetched {len(df)} candles for {symbol} {timeframe} from Hyperliquid")
-                return df
+            logger.info(f"Fetched {len(df)} candles for {symbol} {timeframe} from Hyperliquid")
+            return df
 
         except Exception as e:
             logger.error(f"Error fetching OHLCV from Hyperliquid: {e}")
@@ -496,7 +491,7 @@ class HyperliquidCollector(DataCollector):
         Returns:
             DataFrame with columns: timestamp, funding_rate
         """
-        session = await self._get_session()
+        client = await self._get_client()
         asset = symbol.replace("USDT", "").replace("USD", "")
 
         payload = {
@@ -508,24 +503,21 @@ class HyperliquidCollector(DataCollector):
         }
 
         try:
-            async with session.post(
-                f"{self.base_url}/info",
-                json=payload
-            ) as response:
-                if response.status != 200:
-                    return pd.DataFrame()
+            response = await client.post(f"{self.base_url}/info", json=payload)
+            if response.status_code != 200:
+                return pd.DataFrame()
 
-                data = await response.json()
+            data = response.json()
 
-                if not data:
-                    return pd.DataFrame()
+            if not data:
+                return pd.DataFrame()
 
-                df = pd.DataFrame(data)
-                df["timestamp"] = pd.to_datetime(df["time"], unit="ms")
-                df["funding_rate"] = df["fundingRate"].astype(float)
-                df = df[["timestamp", "funding_rate"]]
+            df = pd.DataFrame(data)
+            df["timestamp"] = pd.to_datetime(df["time"], unit="ms")
+            df["funding_rate"] = df["fundingRate"].astype(float)
+            df = df[["timestamp", "funding_rate"]]
 
-                return df
+            return df
 
         except Exception as e:
             logger.error(f"Error fetching funding rate from Hyperliquid: {e}")
@@ -533,21 +525,18 @@ class HyperliquidCollector(DataCollector):
 
     async def get_current_price(self, symbol: str) -> Optional[float]:
         """Get current mid price for a symbol."""
-        session = await self._get_session()
+        client = await self._get_client()
         asset = symbol.replace("USDT", "").replace("USD", "")
 
         payload = {"type": "allMids"}
 
         try:
-            async with session.post(
-                f"{self.base_url}/info",
-                json=payload
-            ) as response:
-                if response.status != 200:
-                    return None
+            response = await client.post(f"{self.base_url}/info", json=payload)
+            if response.status_code != 200:
+                return None
 
-                data = await response.json()
-                return float(data.get(asset, 0))
+            data = response.json()
+            return float(data.get(asset, 0))
 
         except Exception as e:
             logger.error(f"Error fetching current price: {e}")
