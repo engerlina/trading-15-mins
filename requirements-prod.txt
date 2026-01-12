@@ -20,8 +20,8 @@ httpx>=0.27.0
 numpy>=1.24.0
 pandas>=2.0.0
 
-# Ethereum/Crypto (optional - for order signing)
-# eth-account>=0.11.0  # Disabled: has C dependencies, will be installed at runtime if needed
+# Ethereum/Crypto
+eth-account>=0.11.0
 
 # Configuration
 pyyaml>=6.0.0

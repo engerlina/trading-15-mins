@@ -97,9 +97,12 @@ class HyperliquidExecutor:
         """Get account information."""
         client = await self._get_client()
 
+        user_address = self.api_wallet_address or self.wallet_address
+        logger.debug(f"Fetching account info for wallet: {user_address}")
+
         payload = {
             "type": "clearinghouseState",
-            "user": self.api_wallet_address or self.wallet_address
+            "user": user_address
         }
 
         try:
@@ -108,7 +111,9 @@ class HyperliquidExecutor:
                 logger.error(f"Failed to get account info: {response.text}")
                 return None
 
-            return response.json()
+            data = response.json()
+            logger.debug(f"Account info response: {data}")
+            return data
 
         except Exception as e:
             logger.error(f"Error getting account info: {e}")
@@ -137,12 +142,17 @@ class HyperliquidExecutor:
 
     async def get_balance(self) -> float:
         """Get account balance."""
+        logger.info(f"Fetching balance from Hyperliquid ({self.network})...")
         account_info = await self.get_account_info()
 
         if not account_info:
+            logger.warning("No account info returned - balance is 0")
             return 0.0
 
-        return float(account_info.get("marginSummary", {}).get("accountValue", 0))
+        margin_summary = account_info.get("marginSummary", {})
+        balance = float(margin_summary.get("accountValue", 0))
+        logger.info(f"Balance retrieved: ${balance:.2f} (withdrawable: ${float(margin_summary.get('withdrawable', 0)):.2f})")
+        return balance
 
     async def place_order(
         self,
