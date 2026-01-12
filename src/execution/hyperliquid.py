@@ -66,14 +66,18 @@ class HyperliquidExecutor:
 
         self._client: Optional[httpx.AsyncClient] = None
         self.account = None
+        self._eth_account_available = False
 
-        # Initialize signing account if private key provided
+        # Initialize signing account if private key provided (lazy import)
         if self.private_key:
             try:
                 from eth_account import Account
                 pk = self.private_key if self.private_key.startswith("0x") else f"0x{self.private_key}"
                 self.account = Account.from_key(pk)
+                self._eth_account_available = True
                 logger.info(f"Initialized Hyperliquid executor for wallet {self.wallet_address[:10]}...")
+            except ImportError:
+                logger.warning("eth-account not installed - order signing will not work")
             except Exception as e:
                 logger.warning(f"Could not initialize signing account: {e}")
 
